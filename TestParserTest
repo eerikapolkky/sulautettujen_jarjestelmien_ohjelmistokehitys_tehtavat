@@ -1,0 +1,133 @@
+//clear version
+
+#include <gtest/gtest.h>
+#include "../TimeParser.h"
+
+// Correct time
+TEST(TimeParserTest, TestCaseCorrectTime) {
+
+    char time_test[] = "141205";
+
+    ASSERT_EQ(time_parse(time_test), 725);
+}
+
+
+// Seconds boundary
+TEST(TimeParserTest, TestSecondsBoundary) {
+
+    char correct_time[] = "000059";
+    char incorrect_time[] = "000060";
+
+    ASSERT_EQ(time_parse(correct_time), 59);
+    ASSERT_EQ(time_parse(incorrect_time), TIME_VALUE_ERROR);
+}
+
+
+// Minutes boundary
+TEST(TimeParserTest, TestMinutesBoundary) {
+
+    char correct_time[] = "005901";
+    char incorrect_time[] = "006001";
+
+    ASSERT_EQ(time_parse(correct_time), 3541);
+    ASSERT_EQ(time_parse(incorrect_time), TIME_VALUE_ERROR);
+}
+
+
+// Hours boundary
+TEST(TimeParserTest, TestHoursBoundary) {
+
+    char correct_time[] = "230001";
+    char incorrect_time[] = "240001";
+
+    ASSERT_EQ(time_parse(correct_time), 1);
+    ASSERT_EQ(time_parse(incorrect_time), TIME_VALUE_ERROR);
+}
+
+
+// Length test
+TEST(TimeParserTest, TestStringLength) {
+
+    char correct_time[] = "000005";
+    char incorrect_time[] = "00005";
+
+    ASSERT_EQ(time_parse(correct_time), 5);
+    ASSERT_EQ(time_parse(incorrect_time), TIME_LEN_ERROR);
+}
+
+
+// Only numbers allowed
+TEST(TimeParserTest, TestOnlyNumbers) {
+
+    char correct_time[] = "000010";
+    char incorrect_time[] = "00A010";
+
+    ASSERT_EQ(time_parse(correct_time), 10);
+    ASSERT_EQ(time_parse(incorrect_time), TIME_CHAR_ERROR);
+}
+
+
+// Zero time test
+TEST(TimeParserTest, TestZeroTime) {
+
+    char correct_time[] = "000001";
+    char incorrect_time[] = "000000";
+
+    ASSERT_EQ(time_parse(correct_time), 1);
+    ASSERT_EQ(time_parse(incorrect_time), TIME_ZERO_ERROR);
+}
+
+
+// Null pointer test
+TEST(TimeParserTest, TestNullPointer) {
+
+    char correct_time[] = "000001";
+
+    ASSERT_EQ(time_parse(correct_time), 1);
+    ASSERT_EQ(time_parse(NULL), TIME_ARRAY_ERROR);
+}
+
+
+// ----------------------------------------------------
+// Traffic light sequence tests
+// ----------------------------------------------------
+
+// Valid traffic light sequence
+TEST(TrafficSequenceTest, ValidSequence) {
+
+    char correct_sequence[] = "RYGRYG";
+
+    ASSERT_EQ(sequence_parse(correct_sequence), 0);
+}
+
+
+// Invalid character in sequence
+TEST(TrafficSequenceTest, InvalidCharacter) {
+
+    char correct_sequence[] = "RYGRYG";
+    char incorrect_sequence[] = "RYXRYG";
+
+    ASSERT_EQ(sequence_parse(correct_sequence), 0);
+    ASSERT_EQ(sequence_parse(incorrect_sequence), SEQUENCE_ERROR_CHAR);
+}
+
+
+// Empty sequence
+TEST(TrafficSequenceTest, EmptySequence) {
+
+    char correct_sequence[] = "RYG";
+    char incorrect_sequence[] = "";
+
+    ASSERT_EQ(sequence_parse(correct_sequence), 0);
+    ASSERT_EQ(sequence_parse(incorrect_sequence), SEQUENCE_ERROR_EMPTY);
+}
+
+
+// Null sequence
+TEST(TrafficSequenceTest, NullSequence) {
+
+    char correct_sequence[] = "RYG";
+
+    ASSERT_EQ(sequence_parse(correct_sequence), 0);
+    ASSERT_EQ(sequence_parse(NULL), SEQUENCE_ERROR_NULL);
+}
