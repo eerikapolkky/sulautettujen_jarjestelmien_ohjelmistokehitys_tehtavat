@@ -2,4 +2,4 @@
 Due to issues with my laptop, I can not clone the repository to my computer and push the new files, I have to do it manually by creating new file in Github.
 It should not be a problem with reading the code.
 
-EDIT: I now can push the files normally but due the overwrite, older assignments disappeared. They are now fixed.
+EDIT: I now can push the files normally but due the overwrite, older assignments disappeared. They are now fixed and public for review.
