@@ -1,7 +1,42 @@
+/*
+Tavoittelen 4 pistettä
+ * - Robot Framework lähettää UARTin kautta aikamerkkijonoja ja tarkistaa
+ *   oikeat palautusarvot sekä virhekoodit
+ * - Aikamerkkijonoille on lisätty useita testitapauksia, kuten sekuntien
+ *   ja minuuttien raja-arvot sekä nolla-aika
+ * - Robot testaa myös liikennevalosekvenssit ja hylkää sekvenssin,
+ *   jos siinä on virheellinen merkki
+ * - Robot pyytää laitteelta debug-sekvenssin suoritusajan ja logittaa
+ *   palautetun ajan testiraporttiin
+ */
+
+
+
 #include <zephyr/kernel.h>
 #include <zephyr/sys/printk.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/gpio.h>
+#include <zephyr/drivers/uart.h>
+
+#include <stdio.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+
+
+// Time parser error codes
+#define TIME_LEN_ERROR        -1
+#define TIME_ARRAY_ERROR      -2
+#define TIME_VALUE_ERROR      -3
+#define TIME_CHAR_ERROR       -4
+#define TIME_ZERO_ERROR       -5
+
+// Traffic sequence parser error codes
+#define SEQUENCE_ERROR_NULL   -10
+#define SEQUENCE_ERROR_EMPTY  -11
+#define SEQUENCE_ERROR_CHAR   -12
 
 
 // Red = led0
@@ -16,23 +51,132 @@ static const struct gpio_dt_spec green =
 static const struct gpio_dt_spec blue =
     GPIO_DT_SPEC_GET(DT_ALIAS(led2), gpios);
 
-// 0 = red
-// 1 = yellow
-// 2 = green
-volatile int led_state = 0;
+
+// UART
+
+#define UART_DEVICE_NODE DT_CHOSEN(zephyr_console)
+
+static const struct device *const uart_dev =
+    DEVICE_DT_GET(UART_DEVICE_NODE);
+
+
+// DISPATCHER FIFO
+K_FIFO_DEFINE(dispatcher_fifo);
+
+struct data_t {
+    void *fifo_reserved;
+    char color;
+};
+
+
+// DEBUG FIFO
+
+K_FIFO_DEFINE(debug_fifo);
+
+struct debug_data_t {
+    void *fifo_reserved;
+    char msg[64];
+};
+
+
+bool debug_enabled = true;
+
+uint64_t red_time_us = 0;
+uint64_t yellow_time_us = 0;
+uint64_t green_time_us = 0;
+
+// RED
+K_MUTEX_DEFINE(red_mutex);
+K_CONDVAR_DEFINE(red_signal);
+
+// YELLOW
+K_MUTEX_DEFINE(yellow_mutex);
+K_CONDVAR_DEFINE(yellow_signal);
+
+// GREEN
+K_MUTEX_DEFINE(green_mutex);
+K_CONDVAR_DEFINE(green_signal);
+
+
+bool red_requested = false;
+bool yellow_requested = false;
+bool green_requested = false;
+
+
+// Dispatcher waits for light task to finish
+K_SEM_DEFINE(release_sem, 0, 1);
+
+
+
+K_SEM_DEFINE(timer_sem, 0, 1);
 
 
 int init_led(void);
+int init_uart(void);
+
+void send_debug(const char *msg);
+
+void uart_task(void *, void *, void *);
+void dispatcher_task(void *, void *, void *);
 
 void red_led_task(void *, void *, void *);
 void yellow_led_task(void *, void *, void *);
 void green_led_task(void *, void *, void *);
 
+void debug_task(void *, void *, void *);
+
+void timer_expiry_handler(struct k_timer *timer);
+void timer_task(void *, void *, void *);
+
+void queue_color(char color);
+
+int time_parse(char *time);
+int sequence_parse(char *sequence);
 
 
-#define STACKSIZE 500
+// Timer must be defined after timer callback prototype
+K_TIMER_DEFINE(
+    traffic_timer,
+    timer_expiry_handler,
+    NULL
+);
+
+// THREADS
+
+#define STACKSIZE 1024
 #define PRIORITY 5
+#define DEBUG_PRIORITY 7
 
+
+// UART thread
+K_THREAD_DEFINE(
+    uart_thread,
+    STACKSIZE,
+    uart_task,
+    NULL,
+    NULL,
+    NULL,
+    PRIORITY,
+    0,
+    0
+);
+
+
+// Dispatcher thread
+K_THREAD_DEFINE(
+    dispatcher_thread,
+    STACKSIZE,
+    dispatcher_task,
+    NULL,
+    NULL,
+    NULL,
+    PRIORITY,
+    0,
+    0
+);
+
+
+// Red light thread
 K_THREAD_DEFINE(
     red_thread,
     STACKSIZE,
@@ -45,6 +189,8 @@ K_THREAD_DEFINE(
     0
 );
 
+
+// Yellow light thread
 K_THREAD_DEFINE(
     yellow_thread,
     STACKSIZE,
@@ -57,6 +203,8 @@ K_THREAD_DEFINE(
     0
 );
 
+
+// Green light thread
 K_THREAD_DEFINE(
     green_thread,
     STACKSIZE,
@@ -70,6 +218,33 @@ K_THREAD_DEFINE(
 );
 
 
+// Debug thread
+K_THREAD_DEFINE(
+    debug_thread,
+    STACKSIZE,
+    debug_task,
+    NULL,
+    NULL,
+    NULL,
+    DEBUG_PRIORITY,
+    0,
+    0
+);
+
+
+// Timer worker thread
+K_THREAD_DEFINE(
+    timer_thread,
+    STACKSIZE,
+    timer_task,
+    NULL,
+    NULL,
+    NULL,
+    PRIORITY,
+    0,
+    0
+);
+
 int main(void)
 {
     int ret;
@@ -81,7 +256,19 @@ int main(void)
         return 0;
     }
 
+    ret = init_uart();
+
+    if (ret < 0) {
+        printk("UART initialization failed\n");
+        return 0;
+    }
+
     printk("Main started\n");
+    printk("Commands:\n");
+    printk("R = red, Y = yellow, G = green\n");
+    printk("D = debug ON/OFF\n");
+    printk("HHMMSS = start timer\n");
+    printk("S + RYG sequence + Enter = run sequence\n");
 
     while (true) {
         k_msleep(1000);
@@ -90,39 +277,42 @@ int main(void)
     return 0;
 }
 
+// LED INITIALIZATION
 
 int init_led(void)
 {
     int ret;
 
-    // Configure RED
-    ret = gpio_pin_configure_dt(&red, GPIO_OUTPUT_ACTIVE);
+    ret = gpio_pin_configure_dt(
+        &red,
+        GPIO_OUTPUT_ACTIVE
+    );
 
     if (ret < 0) {
         printk("Error: Red LED configure failed\n");
         return ret;
     }
 
-
-    // Configure GREEN
-    ret = gpio_pin_configure_dt(&green, GPIO_OUTPUT_ACTIVE);
+    ret = gpio_pin_configure_dt(
+        &green,
+        GPIO_OUTPUT_ACTIVE
+    );
 
     if (ret < 0) {
         printk("Error: Green LED configure failed\n");
         return ret;
     }
 
-
-    // Configure BLUE
-    ret = gpio_pin_configure_dt(&blue, GPIO_OUTPUT_ACTIVE);
+    ret = gpio_pin_configure_dt(
+        &blue,
+        GPIO_OUTPUT_ACTIVE
+    );
 
     if (ret < 0) {
         printk("Error: Blue LED configure failed\n");
         return ret;
     }
 
-
-    // Turn all LEDs off
     gpio_pin_set_dt(&red, 0);
     gpio_pin_set_dt(&green, 0);
     gpio_pin_set_dt(&blue, 0);
@@ -134,95 +324,708 @@ int init_led(void)
 
 
 
-void red_led_task(void *, void *, void *)
+int init_uart(void)
 {
-    printk("Red LED thread started\n");
+    if (!device_is_ready(uart_dev)) {
+
+        printk("UART device not ready\n");
+
+        return -1;
+    }
+
+    printk("UART initialized OK\n");
+
+    return 0;
+}
+
+
+// SEND DEBUG MESSAGE
+
+void send_debug(const char *msg)
+{
+    if (!debug_enabled) {
+        return;
+    }
+
+    struct debug_data_t *buf =
+        k_malloc(sizeof(struct debug_data_t));
+
+    if (buf == NULL) {
+        return;
+    }
+
+    snprintf(
+        buf->msg,
+        sizeof(buf->msg),
+        "%s",
+        msg
+    );
+
+    k_fifo_put(
+        &debug_fifo,
+        buf
+    );
+}
+
+// DEBUG TASK
+
+void debug_task(void *, void *, void *)
+{
+    while (true) {
+
+        struct debug_data_t *item =
+            k_fifo_get(
+                &debug_fifo,
+                K_FOREVER
+            );
+
+        printk("%s\n", item->msg);
+
+        k_free(item);
+    }
+}
+
+
+void queue_color(char color)
+{
+    struct data_t *buf =
+        k_malloc(sizeof(struct data_t));
+
+    if (buf == NULL) {
+
+        printk("Memory allocation failed\n");
+        return;
+    }
+
+    buf->color = color;
+
+    k_fifo_put(
+        &dispatcher_fifo,
+        buf
+    );
+}
+
+void uart_task(void *, void *, void *)
+{
+    char rc;
+
+    char time_buffer[7];
+    int time_index = 0;
+
+    char sequence_buffer[32];
+    int sequence_index = 0;
+
+    bool sequence_mode = false;
 
     while (true) {
 
-        if (led_state == 0) {
+        if (uart_poll_in(uart_dev, &rc) == 0) {
 
-            // Turn red on
-            gpio_pin_set_dt(&red, 1);
 
-            printk("RED ON\n");
+            if (sequence_mode) {
 
-            // Keep red on for one second
-            k_sleep(K_SECONDS(1));
+                if (rc == '\r' || rc == '\n') {
 
-            // Turn red off
-            gpio_pin_set_dt(&red, 0);
+                    sequence_buffer[sequence_index] = '\0';
 
-            printk("RED OFF\n");
+                    int result =
+                        sequence_parse(sequence_buffer);
 
-            // Next state = yellow
-            led_state = 1;
+                    if (result == 0) {
+
+                        printk("SEQUENCE:OK\n");
+
+                        for (
+                            int i = 0;
+                            sequence_buffer[i] != '\0';
+                            i++
+                        ) {
+                            queue_color(sequence_buffer[i]);
+                        }
+
+                    } else {
+
+                        printk(
+                            "SEQUENCE_ERROR:%d\n",
+                            result
+                        );
+                    }
+
+                    sequence_index = 0;
+                    sequence_mode = false;
+
+                } else {
+
+                    if (
+                        sequence_index <
+                        (int)sizeof(sequence_buffer) - 1
+                    ) {
+
+                        sequence_buffer[sequence_index++] =
+                            rc;
+
+                    } else {
+
+                        printk("SEQUENCE_ERROR:-13\n");
+
+                        sequence_index = 0;
+                        sequence_mode = false;
+                    }
+                }
+            }
+
+            else if (rc == 'S') {
+
+                sequence_mode = true;
+                sequence_index = 0;
+
+                printk("SEQUENCE_INPUT\n");
+            }
+
+            else if (rc == 'D') {
+
+                debug_enabled = !debug_enabled;
+
+                if (debug_enabled) {
+                    printk("DEBUG:ON\n");
+                } else {
+                    printk("DEBUG:OFF\n");
+                }
+            }
+
+            else if (rc == 'T') {
+
+                red_time_us = 0;
+                yellow_time_us = 0;
+                green_time_us = 0;
+
+                queue_color('R');
+                queue_color('Y');
+                queue_color('G');
+            }
+
+            else if (
+                rc >= '0' &&
+                rc <= '9'
+            ) {
+
+                time_buffer[time_index++] = rc;
+
+                if (time_index == 6) {
+
+                    time_buffer[6] = '\0';
+
+                    int seconds =
+                        time_parse(time_buffer);
+
+                    if (seconds > 0) {
+
+                        printk(
+                            "TIME:%d\n",
+                            seconds
+                        );
+
+                        k_timer_start(
+                            &traffic_timer,
+                            K_SECONDS(seconds),
+                            K_NO_WAIT
+                        );
+
+                    } else {
+
+                        printk(
+                            "TIME_ERROR:%d\n",
+                            seconds
+                        );
+                    }
+
+                    time_index = 0;
+                }
+            }
+
+    
+            else if (
+                rc == 'R' ||
+                rc == 'Y' ||
+                rc == 'G'
+            ) {
+
+                queue_color(rc);
+            }
         }
 
-        // Give CPU time to other tasks
         k_msleep(10);
     }
 }
 
-void yellow_led_task(void *, void *, void *)
+
+void timer_expiry_handler(struct k_timer *timer)
 {
-    printk("Yellow LED thread started\n");
+    ARG_UNUSED(timer);
+
+    k_sem_give(&timer_sem);
+}
+
+void timer_task(void *, void *, void *)
+{
+    while (true) {
+
+        k_sem_take(
+            &timer_sem,
+            K_FOREVER
+        );
+
+        printk("Timer expired -> RED\n");
+
+        queue_color('R');
+    }
+}
+
+void dispatcher_task(void *, void *, void *)
+{
+    char msg[64];
 
     while (true) {
 
-        if (led_state == 1) {
+        struct data_t *item =
+            k_fifo_get(
+                &dispatcher_fifo,
+                K_FOREVER
+            );
 
-            // Yellow = red + green
-            gpio_pin_set_dt(&red, 1);
-            gpio_pin_set_dt(&green, 1);
+        char color = item->color;
 
-            printk("YELLOW ON\n");
+        k_free(item);
 
-            // Keep yellow on for one second
-            k_sleep(K_SECONDS(1));
+        snprintf(
+            msg,
+            sizeof(msg),
+            "Dispatcher received: %c",
+            color
+        );
 
-            // Turn both LEDs off
-            gpio_pin_set_dt(&red, 0);
-            gpio_pin_set_dt(&green, 0);
+        send_debug(msg);
 
-            printk("YELLOW OFF\n");
 
-            // Next state = green
-            led_state = 2;
+        if (color == 'R') {
+
+            send_debug("Dispatcher -> RED");
+
+            k_mutex_lock(
+                &red_mutex,
+                K_FOREVER
+            );
+
+            red_requested = true;
+
+            k_condvar_signal(
+                &red_signal
+            );
+
+            k_mutex_unlock(
+                &red_mutex
+            );
         }
 
-        // Give CPU time to other tasks
-        k_msleep(10);
+
+        else if (color == 'Y') {
+
+            send_debug("Dispatcher -> YELLOW");
+
+            k_mutex_lock(
+                &yellow_mutex,
+                K_FOREVER
+            );
+
+            yellow_requested = true;
+
+            k_condvar_signal(
+                &yellow_signal
+            );
+
+            k_mutex_unlock(
+                &yellow_mutex
+            );
+        }
+
+
+        else if (color == 'G') {
+
+            send_debug("Dispatcher -> GREEN");
+
+            k_mutex_lock(
+                &green_mutex,
+                K_FOREVER
+            );
+
+            green_requested = true;
+
+            k_condvar_signal(
+                &green_signal
+            );
+
+            k_mutex_unlock(
+                &green_mutex
+            );
+        }
+
+        k_sem_take(
+            &release_sem,
+            K_FOREVER
+        );
+    }
+}
+
+
+void red_led_task(void *, void *, void *)
+{
+    while (true) {
+
+        k_mutex_lock(
+            &red_mutex,
+            K_FOREVER
+        );
+
+        while (!red_requested) {
+
+            k_condvar_wait(
+                &red_signal,
+                &red_mutex,
+                K_FOREVER
+            );
+        }
+
+        red_requested = false;
+
+        k_mutex_unlock(
+            &red_mutex
+        );
+
+
+        uint32_t start_time =
+            k_cycle_get_32();
+
+
+        gpio_pin_set_dt(
+            &red,
+            1
+        );
+
+        send_debug("RED ON");
+
+
+        k_sleep(
+            K_SECONDS(1)
+        );
+
+
+        // RED OFF
+        gpio_pin_set_dt(
+            &red,
+            0
+        );
+
+        send_debug("RED OFF");
+
+        uint32_t end_time =
+            k_cycle_get_32();
+
+        red_time_us =
+            k_cyc_to_us_floor64(
+                end_time - start_time
+            );
+
+        printk(
+            "RED task time: %llu us\n",
+            red_time_us
+        );
+
+
+        k_sem_give(
+            &release_sem
+        );
+    }
+}
+
+
+void yellow_led_task(void *, void *, void *)
+{
+    while (true) {
+
+        k_mutex_lock(
+            &yellow_mutex,
+            K_FOREVER
+        );
+
+        while (!yellow_requested) {
+
+            k_condvar_wait(
+                &yellow_signal,
+                &yellow_mutex,
+                K_FOREVER
+            );
+        }
+
+        yellow_requested = false;
+
+        k_mutex_unlock(
+            &yellow_mutex
+        );
+
+
+        // START TIMING
+        uint32_t start_time =
+            k_cycle_get_32();
+
+
+        // Yellow = red + green
+        gpio_pin_set_dt(
+            &red,
+            1
+        );
+
+        gpio_pin_set_dt(
+            &green,
+            1
+        );
+
+        send_debug("YELLOW ON");
+
+
+        k_sleep(
+            K_SECONDS(1)
+        );
+
+
+        gpio_pin_set_dt(
+            &red,
+            0
+        );
+
+        gpio_pin_set_dt(
+            &green,
+            0
+        );
+
+        send_debug("YELLOW OFF");
+
+
+        uint32_t end_time =
+            k_cycle_get_32();
+
+        yellow_time_us =
+            k_cyc_to_us_floor64(
+                end_time - start_time
+            );
+
+        printk(
+            "YELLOW task time: %llu us\n",
+            yellow_time_us
+        );
+
+
+        k_sem_give(
+            &release_sem
+        );
     }
 }
 
 
 void green_led_task(void *, void *, void *)
 {
-    printk("Green LED thread started\n");
-
     while (true) {
 
-        if (led_state == 2) {
+        k_mutex_lock(
+            &green_mutex,
+            K_FOREVER
+        );
 
-            // Turn green on
-            gpio_pin_set_dt(&green, 1);
+        while (!green_requested) {
 
-            printk("GREEN ON\n");
-
-            // Keep green on for one second
-            k_sleep(K_SECONDS(1));
-
-            // Turn green off
-            gpio_pin_set_dt(&green, 0);
-
-            printk("GREEN OFF\n");
-
-            // Go back to red
-            led_state = 0;
+            k_condvar_wait(
+                &green_signal,
+                &green_mutex,
+                K_FOREVER
+            );
         }
 
-        // Give CPU time to other tasks
-        k_msleep(10);
+        green_requested = false;
+
+        k_mutex_unlock(
+            &green_mutex
+        );
+
+        uint32_t start_time =
+            k_cycle_get_32();
+
+
+        gpio_pin_set_dt(
+            &green,
+            1
+        );
+
+        send_debug("GREEN ON");
+
+
+        k_sleep(
+            K_SECONDS(1)
+        );
+
+        gpio_pin_set_dt(
+            &green,
+            0
+        );
+
+        send_debug("GREEN OFF");
+
+
+        uint32_t end_time =
+            k_cycle_get_32();
+
+        green_time_us =
+            k_cyc_to_us_floor64(
+                end_time - start_time
+            );
+
+        printk(
+            "GREEN task time: %llu us\n",
+            green_time_us
+        );
+
+        uint64_t total_time =
+            red_time_us +
+            yellow_time_us +
+            green_time_us;
+
+        printk(
+            "DEBUG:%llu ms\n",
+            total_time / 1000
+            );
+
+        printk(
+            "RYG total time: %llu us\n",
+            total_time
+        );
+
+
+        k_sem_give(
+            &release_sem
+        );
     }
+}
+
+
+
+int time_parse(char *time)
+{
+    if (time == NULL) {
+        return TIME_ARRAY_ERROR;
+    }
+
+    if (strlen(time) != 6) {
+        return TIME_LEN_ERROR;
+    }
+
+    for (int i = 0; i < 6; i++) {
+
+        if (!isdigit((unsigned char)time[i])) {
+            return TIME_CHAR_ERROR;
+        }
+    }
+
+    int values[3];
+
+    // seconds
+    values[2] =
+        atoi(time + 4);
+
+    time[4] = '\0';
+
+
+    // minutes
+    values[1] =
+        atoi(time + 2);
+
+    time[2] = '\0';
+
+
+    // hours
+    values[0] =
+        atoi(time);
+
+
+    // Hours: 0-23
+    if (
+        values[0] < 0 ||
+        values[0] > 23
+    ) {
+
+        return TIME_VALUE_ERROR;
+    }
+
+
+    // Minutes: 0-59
+    if (
+        values[1] < 0 ||
+        values[1] > 59
+    ) {
+
+        return TIME_VALUE_ERROR;
+    }
+
+
+    // Seconds: 0-59
+    if (
+        values[2] < 0 ||
+        values[2] > 59
+    ) {
+
+        return TIME_VALUE_ERROR;
+    }
+
+
+
+    int seconds =
+        values[1] * 60 +
+        values[2];
+
+
+    if (seconds == 0) {
+        return TIME_ZERO_ERROR;
+    }
+
+
+    return seconds;
+}
+
+// R, Y, G
+
+
+int sequence_parse(char *sequence)
+{
+    if (sequence == NULL) {
+        return SEQUENCE_ERROR_NULL;
+    }
+
+    if (strlen(sequence) == 0) {
+        return SEQUENCE_ERROR_EMPTY;
+    }
+
+    for (
+        int i = 0;
+        sequence[i] != '\0';
+        i++
+    ) {
+
+        if (
+            sequence[i] != 'R' &&
+            sequence[i] != 'Y' &&
+            sequence[i] != 'G'
+        ) {
+
+            return SEQUENCE_ERROR_CHAR;
+        }
+    }
+
+    return 0;
 }

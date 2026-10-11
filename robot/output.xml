@@ -1,0 +1,190 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<robot generator="Robot 7.5 (Python 3.13.2 on darwin)" generated="2026-10-11T18:49:19.052464" rpa="false" schemaversion="5">
+<suite id="s1" name="Traffic Light Tests" source="/Users/eerikapolkky/sulautettujen_jarjestelmien_ohjelmistokehitys_tehtavat/kotitehtävä1/robot/traffic_light_tests.robot">
+<kw name="Open Uart" owner="uart_library" type="SETUP">
+<arg>/dev/cu.usbmodem0010501670471</arg>
+<arg>115200</arg>
+<status status="PASS" start="2026-10-11T18:49:19.084498" elapsed="1.014674"/>
+</kw>
+<test id="s1-t1" name="Valid Time String" line="10">
+<kw name="Send Command" owner="uart_library">
+<msg time="2026-10-11T18:49:20.156022" level="INFO">${response} = TIME:80</msg>
+<var>${response}</var>
+<arg>000120</arg>
+<status status="PASS" start="2026-10-11T18:49:20.100131" elapsed="0.055979"/>
+</kw>
+<kw name="Should Be Equal" owner="BuiltIn">
+<arg>${response}</arg>
+<arg>TIME:80</arg>
+<doc>Fails if the given objects are unequal.</doc>
+<status status="PASS" start="2026-10-11T18:49:20.156556" elapsed="0.000642"/>
+</kw>
+<status status="PASS" start="2026-10-11T18:49:20.099507" elapsed="0.057893"/>
+</test>
+<test id="s1-t2" name="Invalid Time String" line="14">
+<kw name="Send Command" owner="uart_library">
+<msg time="2026-10-11T18:49:20.227921" level="INFO">${response} = TIME_ERROR:-3</msg>
+<var>${response}</var>
+<arg>001067</arg>
+<status status="PASS" start="2026-10-11T18:49:20.158068" elapsed="0.069895"/>
+</kw>
+<kw name="Should Be Equal" owner="BuiltIn">
+<arg>${response}</arg>
+<arg>TIME_ERROR:-3</arg>
+<doc>Fails if the given objects are unequal.</doc>
+<status status="PASS" start="2026-10-11T18:49:20.228140" elapsed="0.000236"/>
+</kw>
+<status status="PASS" start="2026-10-11T18:49:20.157686" elapsed="0.070778"/>
+</test>
+<test id="s1-t3" name="Seconds Boundary Valid" line="18">
+<kw name="Send Command" owner="uart_library">
+<msg time="2026-10-11T18:49:20.288866" level="INFO">${response} = TIME:59</msg>
+<var>${response}</var>
+<arg>000059</arg>
+<status status="PASS" start="2026-10-11T18:49:20.228739" elapsed="0.060165"/>
+</kw>
+<kw name="Should Be Equal" owner="BuiltIn">
+<arg>${response}</arg>
+<arg>TIME:59</arg>
+<doc>Fails if the given objects are unequal.</doc>
+<status status="PASS" start="2026-10-11T18:49:20.289115" elapsed="0.000269"/>
+</kw>
+<status status="PASS" start="2026-10-11T18:49:20.228581" elapsed="0.060902"/>
+</test>
+<test id="s1-t4" name="Seconds Boundary Invalid" line="22">
+<kw name="Send Command" owner="uart_library">
+<msg time="2026-10-11T18:49:20.359989" level="INFO">${response} = TIME_ERROR:-3</msg>
+<var>${response}</var>
+<arg>000060</arg>
+<status status="PASS" start="2026-10-11T18:49:20.289833" elapsed="0.070208"/>
+</kw>
+<kw name="Should Be Equal" owner="BuiltIn">
+<arg>${response}</arg>
+<arg>TIME_ERROR:-3</arg>
+<doc>Fails if the given objects are unequal.</doc>
+<status status="PASS" start="2026-10-11T18:49:20.360338" elapsed="0.000366"/>
+</kw>
+<status status="PASS" start="2026-10-11T18:49:20.289629" elapsed="0.071219"/>
+</test>
+<test id="s1-t5" name="Minutes Boundary Valid" line="26">
+<kw name="Send Command" owner="uart_library">
+<msg time="2026-10-11T18:49:20.421933" level="INFO">${response} = TIME:3541</msg>
+<var>${response}</var>
+<arg>005901</arg>
+<status status="PASS" start="2026-10-11T18:49:20.361324" elapsed="0.060667"/>
+</kw>
+<kw name="Should Be Equal" owner="BuiltIn">
+<arg>${response}</arg>
+<arg>TIME:3541</arg>
+<doc>Fails if the given objects are unequal.</doc>
+<status status="PASS" start="2026-10-11T18:49:20.422329" elapsed="0.000435"/>
+</kw>
+<status status="PASS" start="2026-10-11T18:49:20.361045" elapsed="0.061882"/>
+</test>
+<test id="s1-t6" name="Minutes Boundary Invalid" line="30">
+<kw name="Send Command" owner="uart_library">
+<msg time="2026-10-11T18:49:20.493005" level="INFO">${response} = TIME_ERROR:-3</msg>
+<var>${response}</var>
+<arg>006001</arg>
+<status status="PASS" start="2026-10-11T18:49:20.424111" elapsed="0.068957"/>
+</kw>
+<kw name="Should Be Equal" owner="BuiltIn">
+<arg>${response}</arg>
+<arg>TIME_ERROR:-3</arg>
+<doc>Fails if the given objects are unequal.</doc>
+<status status="PASS" start="2026-10-11T18:49:20.493421" elapsed="0.000449"/>
+</kw>
+<status status="PASS" start="2026-10-11T18:49:20.423169" elapsed="0.070869"/>
+</test>
+<test id="s1-t7" name="Non Zero Time Valid" line="34">
+<kw name="Send Command" owner="uart_library">
+<msg time="2026-10-11T18:49:20.554947" level="INFO">${response} = TIME:10</msg>
+<var>${response}</var>
+<arg>000010</arg>
+<status status="PASS" start="2026-10-11T18:49:20.494638" elapsed="0.060360"/>
+</kw>
+<kw name="Should Be Equal" owner="BuiltIn">
+<arg>${response}</arg>
+<arg>TIME:10</arg>
+<doc>Fails if the given objects are unequal.</doc>
+<status status="PASS" start="2026-10-11T18:49:20.555284" elapsed="0.000342"/>
+</kw>
+<status status="PASS" start="2026-10-11T18:49:20.494284" elapsed="0.061471"/>
+</test>
+<test id="s1-t8" name="Zero Time Invalid" line="38">
+<kw name="Send Command" owner="uart_library">
+<msg time="2026-10-11T18:49:20.625812" level="INFO">${response} = TIME_ERROR:-5</msg>
+<var>${response}</var>
+<arg>000000</arg>
+<status status="PASS" start="2026-10-11T18:49:20.556181" elapsed="0.069657"/>
+</kw>
+<kw name="Should Be Equal" owner="BuiltIn">
+<arg>${response}</arg>
+<arg>TIME_ERROR:-5</arg>
+<doc>Fails if the given objects are unequal.</doc>
+<status status="PASS" start="2026-10-11T18:49:20.625986" elapsed="0.000181"/>
+</kw>
+<status status="PASS" start="2026-10-11T18:49:20.555938" elapsed="0.070295"/>
+</test>
+<test id="s1-t9" name="Valid Traffic Light Sequence" line="42">
+<kw name="Send Sequence" owner="uart_library">
+<msg time="2026-10-11T18:49:20.678852" level="INFO">${response} = SEQUENCE:OK</msg>
+<var>${response}</var>
+<arg>RYG</arg>
+<status status="PASS" start="2026-10-11T18:49:20.626457" elapsed="0.052426"/>
+</kw>
+<kw name="Should Be Equal" owner="BuiltIn">
+<arg>${response}</arg>
+<arg>SEQUENCE:OK</arg>
+<doc>Fails if the given objects are unequal.</doc>
+<status status="PASS" start="2026-10-11T18:49:20.679054" elapsed="0.000207"/>
+</kw>
+<status status="PASS" start="2026-10-11T18:49:20.626328" elapsed="0.053008"/>
+</test>
+<test id="s1-t10" name="Invalid Traffic Light Sequence" line="46">
+<kw name="Send Sequence" owner="uart_library">
+<msg time="2026-10-11T18:49:20.731890" level="INFO">${response} = SEQUENCE_ERROR:-12</msg>
+<var>${response}</var>
+<arg>RjG</arg>
+<status status="PASS" start="2026-10-11T18:49:20.679593" elapsed="0.052333"/>
+</kw>
+<kw name="Should Be Equal" owner="BuiltIn">
+<arg>${response}</arg>
+<arg>SEQUENCE_ERROR:-12</arg>
+<doc>Fails if the given objects are unequal.</doc>
+<status status="PASS" start="2026-10-11T18:49:20.732117" elapsed="0.000210"/>
+</kw>
+<status status="PASS" start="2026-10-11T18:49:20.679439" elapsed="0.052968"/>
+</test>
+<test id="s1-t11" name="Debug Sequence Time" line="50">
+<kw name="Get Debug Time" owner="uart_library">
+<msg time="2026-10-11T18:49:31.558444" level="INFO">${response} = DEBUG_TIMEOUT</msg>
+<var>${response}</var>
+<status status="PASS" start="2026-10-11T18:49:20.732682" elapsed="10.825896"/>
+</kw>
+<kw name="Log" owner="BuiltIn">
+<msg time="2026-10-11T18:49:31.559758" level="INFO">DEBUG_TIMEOUT</msg>
+<arg>${response}</arg>
+<doc>Logs the given message with the given level.</doc>
+<status status="PASS" start="2026-10-11T18:49:31.559252" elapsed="0.000549"/>
+</kw>
+<status status="PASS" start="2026-10-11T18:49:20.732520" elapsed="10.827432"/>
+</test>
+<kw name="Close Uart" owner="uart_library" type="TEARDOWN">
+<status status="PASS" start="2026-10-11T18:49:31.560575" elapsed="0.002379"/>
+</kw>
+<status status="PASS" start="2026-10-11T18:49:19.053159" elapsed="12.509827"/>
+</suite>
+<statistics>
+<total>
+<stat pass="11" fail="0" skip="0">All Tests</stat>
+</total>
+<tag>
+</tag>
+<suite>
+<stat name="Traffic Light Tests" id="s1" pass="11" fail="0" skip="0">Traffic Light Tests</stat>
+</suite>
+</statistics>
+<errors>
+</errors>
+</robot>
