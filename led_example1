@@ -1,0 +1,228 @@
+#include <zephyr/kernel.h>
+#include <zephyr/sys/printk.h>
+#include <zephyr/device.h>
+#include <zephyr/drivers/gpio.h>
+
+
+// Red = led0
+static const struct gpio_dt_spec red =
+    GPIO_DT_SPEC_GET(DT_ALIAS(led0), gpios);
+
+// Green = led1
+static const struct gpio_dt_spec green =
+    GPIO_DT_SPEC_GET(DT_ALIAS(led1), gpios);
+
+// Blue = led2
+static const struct gpio_dt_spec blue =
+    GPIO_DT_SPEC_GET(DT_ALIAS(led2), gpios);
+
+// 0 = red
+// 1 = yellow
+// 2 = green
+volatile int led_state = 0;
+
+
+int init_led(void);
+
+void red_led_task(void *, void *, void *);
+void yellow_led_task(void *, void *, void *);
+void green_led_task(void *, void *, void *);
+
+
+
+#define STACKSIZE 500
+#define PRIORITY 5
+
+K_THREAD_DEFINE(
+    red_thread,
+    STACKSIZE,
+    red_led_task,
+    NULL,
+    NULL,
+    NULL,
+    PRIORITY,
+    0,
+    0
+);
+
+K_THREAD_DEFINE(
+    yellow_thread,
+    STACKSIZE,
+    yellow_led_task,
+    NULL,
+    NULL,
+    NULL,
+    PRIORITY,
+    0,
+    0
+);
+
+K_THREAD_DEFINE(
+    green_thread,
+    STACKSIZE,
+    green_led_task,
+    NULL,
+    NULL,
+    NULL,
+    PRIORITY,
+    0,
+    0
+);
+
+
+int main(void)
+{
+    int ret;
+
+    ret = init_led();
+
+    if (ret < 0) {
+        printk("LED initialization failed\n");
+        return 0;
+    }
+
+    printk("Main started\n");
+
+    while (true) {
+        k_msleep(1000);
+    }
+
+    return 0;
+}
+
+
+int init_led(void)
+{
+    int ret;
+
+    // Configure RED
+    ret = gpio_pin_configure_dt(&red, GPIO_OUTPUT_ACTIVE);
+
+    if (ret < 0) {
+        printk("Error: Red LED configure failed\n");
+        return ret;
+    }
+
+
+    // Configure GREEN
+    ret = gpio_pin_configure_dt(&green, GPIO_OUTPUT_ACTIVE);
+
+    if (ret < 0) {
+        printk("Error: Green LED configure failed\n");
+        return ret;
+    }
+
+
+    // Configure BLUE
+    ret = gpio_pin_configure_dt(&blue, GPIO_OUTPUT_ACTIVE);
+
+    if (ret < 0) {
+        printk("Error: Blue LED configure failed\n");
+        return ret;
+    }
+
+
+    // Turn all LEDs off
+    gpio_pin_set_dt(&red, 0);
+    gpio_pin_set_dt(&green, 0);
+    gpio_pin_set_dt(&blue, 0);
+
+    printk("LEDs initialized OK\n");
+
+    return 0;
+}
+
+
+
+void red_led_task(void *, void *, void *)
+{
+    printk("Red LED thread started\n");
+
+    while (true) {
+
+        if (led_state == 0) {
+
+            // Turn red on
+            gpio_pin_set_dt(&red, 1);
+
+            printk("RED ON\n");
+
+            // Keep red on for one second
+            k_sleep(K_SECONDS(1));
+
+            // Turn red off
+            gpio_pin_set_dt(&red, 0);
+
+            printk("RED OFF\n");
+
+            // Next state = yellow
+            led_state = 1;
+        }
+
+        // Give CPU time to other tasks
+        k_msleep(10);
+    }
+}
+
+void yellow_led_task(void *, void *, void *)
+{
+    printk("Yellow LED thread started\n");
+
+    while (true) {
+
+        if (led_state == 1) {
+
+            // Yellow = red + green
+            gpio_pin_set_dt(&red, 1);
+            gpio_pin_set_dt(&green, 1);
+
+            printk("YELLOW ON\n");
+
+            // Keep yellow on for one second
+            k_sleep(K_SECONDS(1));
+
+            // Turn both LEDs off
+            gpio_pin_set_dt(&red, 0);
+            gpio_pin_set_dt(&green, 0);
+
+            printk("YELLOW OFF\n");
+
+            // Next state = green
+            led_state = 2;
+        }
+
+        // Give CPU time to other tasks
+        k_msleep(10);
+    }
+}
+
+
+void green_led_task(void *, void *, void *)
+{
+    printk("Green LED thread started\n");
+
+    while (true) {
+
+        if (led_state == 2) {
+
+            // Turn green on
+            gpio_pin_set_dt(&green, 1);
+
+            printk("GREEN ON\n");
+
+            // Keep green on for one second
+            k_sleep(K_SECONDS(1));
+
+            // Turn green off
+            gpio_pin_set_dt(&green, 0);
+
+            printk("GREEN OFF\n");
+
+            // Go back to red
+            led_state = 0;
+        }
+
+        // Give CPU time to other tasks
+        k_msleep(10);
+    }
+}
